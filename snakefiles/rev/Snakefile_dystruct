@@ -1,0 +1,130 @@
+#!python
+import glob
+import os
+import allel
+import h5py
+import numpy as np
+import pandas as pd
+import pysam
+import _pickle as pkl
+
+
+# output files
+par = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.par"
+ind = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.ind"
+snp = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.snp"
+geno = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.geno"
+
+localrules: bin_times 
+
+times = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-times.txt"
+freqs = ["output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-K{}_freqs".format(k)
+        for k in range(2, 9)] 
+theta = ["output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-K{}_theta".format(k)
+        for k in range(2, 9)] 
+
+
+rule rev_dystruct_all:
+    """Dummy rule to run dystruct
+    """
+    input:
+        par,
+        ind,
+        snp,
+        geno,
+        times,
+        freqs,
+        theta
+
+
+rule rev_plink2eigenstrat:
+    """Converts plink to eigenstrat
+    """
+    input:
+        bed="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bed",
+        fam="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.fam",
+        bim="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bim"
+    output:
+        par="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.par",
+        ind="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.ind",
+        snp="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.snp",
+        geno="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.geno"
+    run:
+        with open(output.par, "w") as par:
+            par.write("genotypename:\t{}\n".format(input.bed))
+            par.write("snpname:\t{}\n".format(input.bim))
+            par.write("indivname:\t{}\n".format(input.fam))
+            par.write("outputformat:\tEIGENSTRAT\n")
+            par.write("genotypeoutname:\t{}\n".format(output.geno))
+            par.write("snpoutname:\t{}\n".format(output.snp))
+            par.write("indivoutname:\t{}\n".format(output.ind))
+            par.write("familynames:\tNO")
+
+        shell("convertf -p {output.par}")
+
+
+rule bin_times:
+    """Bins sample ages into groups
+    """
+    input:
+        ind = "output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.ind", 
+        meta = "output/meta/meta_rev_final.csv"
+    output:
+        times=times
+    run:
+        # read ind info
+        ind_df = pd.read_table(input.ind, header=None, sep="\s+")
+        ind_df.columns = ["full_iid", "sex", "fam"]
+        m_df = pd.read_csv(input.meta)
+        
+        # read meta and merge with ind
+        meta_df = ind_df.merge(m_df, on=["full_iid"])
+        meta_df = meta_df[["iid", "full_iid", "clst", "label", "clst_alt", "age"]]
+
+        # modified from https://github.com/tyjo/dystruct/blob/master/supp/scripts/bin_sample_times.py
+        ages = np.array(meta_df["age"].tolist())
+
+        time_gen = ages / 25.0
+        time_gen = time_gen - time_gen.min()
+
+        bucket_size = 50
+        buckets = [[] for i in range(int(time_gen.max() / bucket_size)+1)]
+
+        for idx,g in enumerate(time_gen):
+            bucket_idx = int(g / bucket_size) 
+            if g == time_gen.max():
+                buckets[-1].append(g)
+            elif g == 0:
+                buckets[0].append(g)
+            else:
+                buckets[bucket_idx].append(g)
+        
+        bucket_idx = 0
+        for idx,g in enumerate(time_gen):
+            bucket_idx = int(g / bucket_size)
+
+            if g == time_gen.max() or g == 0:
+                continue
+            else:
+                time_gen[idx] = np.mean(buckets[bucket_idx])
+
+        np.savetxt(output.times, time_gen, fmt="%i")
+
+
+rule rev_run_dystruct:
+    """Runs dystruct
+
+    NOTE: nloci is currently hardcoded
+    """
+    input:
+        geno=geno,
+        times=times
+    params:
+        prefix="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-K{k}",
+        k="{k}"
+    output:
+        freq="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-K{k}_freqs",
+        theta="output/dystruct_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc-K{k}_theta"
+    run:
+        shell("export OMP_NUM_THREADS=8")
+        shell("bin/dystruct --input {input.geno} --generation-times {input.times} --output {params.prefix} --npops {params.k} --nloci 96434 --pop-size 15000 --seed 21369 --hold-out-fraction 0.05 --hold-out-seed 13497")

@@ -1,0 +1,35 @@
+#!python
+
+import os
+import glob
+
+
+sard_bams = glob.glob("output/bam_rev/*_mrg_ddp_srt_3trm.bam")
+sard_bamlist = "output/y_rev/ancient_sardinia_3trm.bamlist" 
+sard_readcount = "output/y_rev/ancient_sardinia_3trm.readcount.txt.gz"
+
+
+rule rev_y_all:
+    """Dummy rule to generate y chrom data
+    """
+    input: 
+        sard_bamlist,
+        sard_readcount,
+
+
+rule rev_sard_y:
+    """Sard ancient Y readcounts
+    """
+    input: 
+        sard_bams = sard_bams,
+        snp = "data/bed/full230_chrY.snp" 
+    output:
+        sard_bamlist = sard_bamlist,
+        sard_readcount = sard_readcount
+    run:
+        with open(output.sard_bamlist, "w") as f:
+            for bam in input.sard_bams:
+                iid = os.path.basename(bam).split("_")[0]
+                f.write("{}\t{}\n".format(iid, bam))
+
+        shell("python scripts/gdc/apulldown.py --mapqual 20 --basequal 30 --bamlist {output.sard_bamlist} --snps {input.snp} -o readcounts | bgzip -c > {output.sard_readcount}") 

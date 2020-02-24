@@ -1,0 +1,53 @@
+#!python
+
+import os
+import glob
+import numpy as np
+import pandas as pd
+
+
+bams = glob.glob("data/bam_rev/*.bam")
+inds = list(map(lambda x: os.path.basename(x).split("_")[0], bams))
+
+vcfs = ["output/vcf_rev_xy/{}_xy_mrg_ddp_srt_3trm.vcf.gz".format(ind) for ind in inds] 
+merged_vcf = "output/vcf_rev_xy/ancient_sardinia_rev_xy_mrg_ddp_srt_3trm.vcf.gz"
+
+
+rule rev_xy_read_sampling_all:
+    input: 
+        vcfs,
+        merged_vcf
+
+
+rule rev_xy_read_sample:
+    """Make ancient datasets by sampling allele from random reads and
+    fixing the genotype to the randomly sampled allele
+    """
+    input: 
+        bam = "output/bam_rev/{ind}_mrg_ddp_srt_3trm.bam"
+    params:
+        bam_list_path = "output/vcf_rev_xy/{ind}_xy_mrg_ddp_srt_3trm.txt",
+        snps = "data/bed/full230_chrXY.snp",
+        prefix = "output/vcf_rev_xy/{ind}_xy_mrg_ddp_srt_3trm.vcf"
+    output: 
+        vcf = "output/vcf_rev_xy/{ind}_xy_mrg_ddp_srt_3trm.vcf.gz"
+    run: 
+        with open(params.bam_list_path, "w") as bam_list_file:
+            iid = os.path.basename(input.bam).split("_")[0]
+            bam_list_file.write('{}\t{}\n'.format(iid, input.bam))
+        shell("python scripts/gdc/apulldown.py --mapqual 20 --basequal 30 --bamlist {params.bam_list_path} --snps {params.snps} -o vcf --gl | awk -f scripts/remove_chrom.awk > {params.prefix}") 
+        shell("bgzip {params.prefix}")
+        shell("tabix -p vcf {params.prefix}.gz")
+
+
+rule rev_xy_merge_read_sampled_vcf:
+    """Merge all the read sampled vcfs into a single vcf
+    """
+    input: 
+        vcfs = vcfs,
+    output: 
+        vcf = merged_vcf
+    run:
+        vcf_files_str = " ".join(input.vcfs)
+        shell("bcftools merge {} | bgzip -c > {{output.vcf}}".format(vcf_files_str))  
+        shell("tabix -p vcf {output.vcf}")

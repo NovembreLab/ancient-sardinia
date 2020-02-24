@@ -1,0 +1,81 @@
+#!python
+import pandas as pd
+import numpy as np 
+
+
+# Run admixture for K=2,...,K=Kmax 
+Kmax = 13
+
+# remove "famous" ancients
+fil_fam_anc_bim = "output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bim" 
+fil_fam_anc_fam = "output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.fam" 
+fil_fam_anc_bed = "output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bed" 
+
+# admixture output
+# admixture coefficents
+qs = expand("output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamac.K{K}r{r}.Q",
+            K=list(range(2, Kmax+1)), 
+            r=list(range(1, 6)))
+
+# allele-frequenices
+ps = expand("output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamac.K{K}r{r}.P",
+            K=list(range(2, Kmax+1)), 
+            r=list(range(1, 6)))
+
+
+rule rev_admixture_all:
+    """Dummy rule to run admixture
+    """
+    input:
+        fil_fam_anc_bim, 
+        fil_fam_anc_fam,
+        fil_fam_anc_bed,
+        qs,
+        ps
+
+
+rule rev_plink_filfamanc:
+    """Create plink (bed format) for admixture input
+    """
+    input:
+        bim="output/plink_rev/ho_afr/ho_afr_maf5_ldprune.bim",
+        bed="output/plink_rev/ho_afr/ho_afr_maf5_ldprune.bed",
+        fam="output/plink_rev/ho_afr/ho_afr_maf5_ldprune.fam"
+    params:
+        prefix_in = "output/plink_rev/ho_afr/ho_afr_maf5_ldprune",
+        prefix_out = "output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc"
+    output:
+        txt="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.txt",
+        bim="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bim",
+        bed="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bed",
+        fam="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.fam"
+    run:
+        fam_anc = ["Loschbour", "LBK380", "Otzi", "Saqqaq", "MA1", "AG2",
+                   "Skoglund_HG", "Skoglund_farmer", "Motala_merge", "Motala12",
+                   "LaBrana", "I1560"] # added last one b/c all nas in meta
+        fam_df = pd.read_table(input.fam, header=None, sep="\s+")
+        fam_df.columns = ["fid", "iid", "a", "b", "c", "d"]
+        fam_anc_df = fam_df[fam_df["iid"].isin(fam_anc)]
+        fam_anc_df[["fid", "iid"]].to_csv(output.txt, sep=" ", header=None, index=None)
+
+        # remove famous ancients 
+        shell("plink --bfile {params.prefix_in} --remove {output.txt} --make-bed --out {params.prefix_out}")
+
+
+rule rev_run_admixture:
+    """Runs admixture
+    """
+    input:
+        bed="output/admixture_rev/ho_afr/ho_afr_maf5_ldprune_filfamanc.bed"
+    params:
+        K = "{K}",
+        r = "{r}",
+        q = "./ho_afr_maf5_ldprune_filfamanc.{K}.Q",
+        p = "./ho_afr_maf5_ldprune_filfamanc.{K}.P"
+    output:
+        q="output/admixture_rev/ho_afr/ho_afr_maf5_{pruned}.K{K}r{r}.Q",
+        p="output/admixture_rev/ho_afr/ho_afr_maf5_{pruned}.K{K}r{r}.P"
+    run:
+        shell("bin/admixture -s ${{RANDOM}} {input.bed} {params.K} -j8")
+        shell("mv {params.p} {output.p}")
+        shell("mv {params.q} {output.q}")

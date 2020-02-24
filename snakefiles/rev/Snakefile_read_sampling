@@ -1,0 +1,267 @@
+#!python
+
+import os
+import glob
+import allel
+import numpy as np
+import pandas as pd
+import pysam
+import h5py
+import _pickle as pkl
+
+# global vars
+MIN_COV_SNPs = 8e5
+MAX_MISS  = .9
+
+bams = glob.glob("data/bam_rev/*.bam")
+inds = list(map(lambda x: os.path.basename(x).split("_")[0], bams))
+
+trimmed_bams = ["output/bam_rev/{}_mrg_ddp_srt_3trm.bam".format(ind) for ind in inds]
+vcfs = ["output/vcf_rev/{}_mrg_ddp_srt_3trm.vcf.gz".format(ind) for ind in inds] 
+merged_vcf = "output/vcf_rev/ancient_sardinia_rev_mrg_ddp_srt_3trm.vcf.gz"
+merged_anc_vcf = "output/vcf_rev/reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.vcf.gz"
+merged_mod_vcf = "output/vcf_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.vcf.gz"
+merged_mod_h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5"
+meta = "output/meta/meta_rev.csv" 
+snp_idx = "output/indices_rev/idx_dict.pkl"
+
+
+rule rev_read_sampling_all:
+    input: 
+        trimmed_bams,
+        vcfs,
+        merged_vcf,
+        merged_anc_vcf,
+        merged_mod_vcf,
+        merged_mod_h5,
+        meta,
+        snp_idx
+
+
+rule rev_trim_bam:
+    """Trim first and last two position of the bam file
+    """
+    input: 
+        bam = "data/bam_rev/{ind}_mrg_ddp_srt.bam"
+    output:
+        bam = "output/bam_rev/{ind}_mrg_ddp_srt_3trm.bam"
+    run:
+        shell("bam trimBam {input.bam} {output.bam} 3")
+        shell("samtools index {output.bam}")
+
+
+rule rev_read_sample:
+    """Make ancient datasets by sampling allele from random reads and
+    fixing the genotype to the randomly sampled allele
+    """
+    input: 
+        bam = "output/bam_rev/{ind}_mrg_ddp_srt_3trm.bam"
+    params:
+        bam_list_path = "output/vcf_rev/{ind}_mrg_ddp_srt_3trm.txt",
+        snps = "data/bed/full230_autosomes.snp",
+        prefix = "output/vcf_rev/{ind}_mrg_ddp_srt_3trm.vcf"
+    output: 
+        vcf = "output/vcf_rev/{ind}_mrg_ddp_srt_3trm.vcf.gz"
+    run: 
+        with open(params.bam_list_path, "w") as bam_list_file:
+            iid = os.path.basename(input.bam).split("_")[0]
+            bam_list_file.write('{}\t{}\n'.format(iid, input.bam))
+        shell("python scripts/gdc/apulldown.py --mapqual 20 --basequal 30 --bamlist {params.bam_list_path} --snps {params.snps} -o vcf --gl | awk -f scripts/remove_chrom.awk > {params.prefix}") 
+        shell("bgzip {params.prefix}")
+        shell("tabix -p vcf {params.prefix}.gz")
+
+
+rule rev_merge_read_sampled_vcf:
+    """Merge all the read sampled vcfs into a single vcf
+    """
+    input: 
+        vcfs = vcfs,
+    output: 
+        vcf = merged_vcf
+    run:
+        vcf_files_str = " ".join(input.vcfs)
+        shell("bcftools merge {} | bgzip -c > {{output.vcf}}".format(vcf_files_str))  
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule rev_merge_reich:
+    """Merges read-sampled reich reference ancients with ancient sardinians
+    """
+    input:
+        sard = merged_vcf,
+        reich = "/project/jnovembre/data/external_public/ancient-data/output/vcf/reich_ancients_mrg_dedup_3trm_anno.vcf.gz"
+    output:
+        vcf = merged_anc_vcf
+    run:
+        shell("bcftools merge {input.sard} {input.reich} | bgzip -c > {output.vcf}")
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule rev_merge_mod:
+    """Merges ancients with moderns 
+    """
+    input:
+        anc = merged_anc_vcf,
+        ho = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.vcf.gz",
+        sard = "data/ref_genotypes/chiang_2017/sardinia_unrlt1577_hoasites_fil_cfrm.vcf.gz",
+        ho_anc = "data/ref_genotypes/human_origins_anc/vdata_auto_anc_cfrm.vcf.gz",
+        na_anc = "data/ref_genotypes/na_anc/v37.2.1240K_na_autosomes_cfrm.vcf.gz"
+    output:
+        vcf = merged_mod_vcf
+    run:
+        # remove multiallelic sites and keep only snps
+        shell("bcftools merge {input.anc} {input.na_anc} {input.ho_anc} {input.ho} {input.sard} | bcftools view -m 2 -M 2 -v snps | bgzip -c > {output.vcf}")
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule rev_vcf_to_h5:
+    """Converts merged vcf to hdf5
+    """
+    input:
+        vcf = merged_mod_vcf
+    output:
+        h5 = merged_mod_h5
+    run:
+        allel.vcf_to_hdf5(input.vcf,
+                          output.h5,
+                          fields=["variants/CHROM",
+                                  "variants/POS",
+                                  "variants/ID", 
+                                  "variants/REF",
+                                  "variants/ALT",
+                                  "variants/AF",
+                                  "variants/EAS_AF",
+                                  "variants/EUR_AF",
+                                  "variants/AFR_AF",
+                                  "variants/AMR_AF",
+                                  "variants/SAS_AF",
+                                  "variants/AA",
+                                  "calldata/GT",
+                                  "calldata/AD",
+                                  "samples"],
+                          numbers={"calldata/AD": 2, 
+                                   "variants/ALT": 1,
+                                   "variants/AF": 1,
+                                   "variants/EAS_AF": 1,
+                                   "variants/EUR_AF": 1,
+                                   "variants/AFR_AF": 1,
+                                   "variants/AMR_AF": 1,
+                                   "variants/SAS_AF": 1,
+                                   "variants/AA": 1
+                                  }
+                          )
+
+        
+rule rev_write_meta:
+    """Writes meta csv with coverage sum stats
+    """
+    input:
+        rev_csv = "data/meta/meta_input/meta_rev.csv",
+        h5 = merged_mod_h5
+    output:
+        meta = meta
+    run:
+        # read hdf5
+        data = h5py.File(input.h5, mode="r")
+        
+        # iid df
+        iid = data["samples"][:]
+        iid_df = pd.DataFrame({"iid": iid})
+
+        # extract allele depth tensor
+        AD = data["calldata/AD"][:]
+        
+        # coverage matrix for all individuals
+        C = AD[:, :, 0] + AD[:, :, 1]
+
+        # modern individuals have only -2 i.e. -1 + -1
+        mod_idx = np.all(C < 0, axis=0) # modern idx
+        anc_idx = ~mod_idx # ancient idx
+
+        # coverage matrix for only ancients
+        C = C[:, anc_idx].astype(np.float32)
+        C[C == -2] = np.nan 
+        
+        # compute coverage stats
+        mean_cov = np.nanmean(C, axis=0)
+        med_cov = np.nanmedian(C, axis=0)
+        n_cov_snp = np.sum(C >= 1, axis=0)
+
+        # coverage df
+        cov_df = pd.DataFrame({"iid": iid[anc_idx], "mean_cov": mean_cov,
+                               "med_cov": med_cov, "n_cov_snp_read": n_cov_snp})
+
+        # input meta df
+        rev = pd.read_csv(input.rev_csv, sep=",")
+        df = rev.drop(["coverage", "n_snps"], axis=1)
+        
+        # create the output meta df in the same order as the vcf
+        meta_df = iid_df.merge(df.merge(cov_df, on="iid", how="left"), how="inner", on="iid")
+        meta_df["full_iid"] = meta_df["iid"].values
+        meta_df["iid"] = meta_df["iid"].astype(str).str[:6]  # First six characters (to have short identifiers)
+
+        # make room for H and G 
+        del AD
+        del C
+
+        # added missingness column 
+        H = data["calldata/GT"][:]
+        n_cov_snp_geno = np.sum(H[:, :, 1] >= 0, axis=0)
+        cov_geno_df = pd.DataFrame({"full_iid": iid, "n_cov_snp": n_cov_snp_geno})
+        meta_df = meta_df.merge(cov_geno_df, how="inner", on="full_iid")
+        
+        # output file
+        meta_df.to_csv(output.meta, header=True, index=False, na_rep=np.nan)
+
+
+rule rev_create_snp_idx:
+    """Creates files with snp filter indicies
+    """
+    input:
+        h5 = merged_mod_h5,
+        meta = meta
+    output:
+        snp_idx = "output/indices_rev/idx_dict.pkl"
+    run:
+        # read h5
+        data = h5py.File(input.h5, mode="r")
+        
+        # indicies
+        meta_df = pd.read_csv(input.meta)
+        ho_iid_idx = np.array(meta_df["study"] == "Lazaridis et al. 2014")
+        sard_iid_idx = np.array(meta_df["study"] == "Chiang et al. 2016")
+        
+        # sard snps
+        H = data["calldata/GT"][:,sard_iid_idx,:]
+        missing_counts = np.sum(H[:,:,0] == -1, axis=1)
+        sard_snps_idx = missing_counts < .5 * np.sum(sard_iid_idx)
+        del H
+
+        # ho snps
+        H = data["calldata/GT"][:,ho_iid_idx,:]
+        missing_counts = np.sum(H[:,:,0] == -1, axis=1)
+        ho_snps_idx = missing_counts < .5 * np.sum(ho_iid_idx)
+        del H
+
+        # nog
+        no_g_ref = data['variants/REF'][:] != "G"
+        no_g_alt = data['variants/ALT'][:] != "G"
+        no_g = no_g_ref * no_g_alt
+
+        # high quality snps
+        anc_df = meta_df.iloc[:1087]
+        hq_anc_df = anc_df[(anc_df["include_alt"] > 0.0) & (anc_df["n_cov_snp_read"] > MIN_COV_SNPs)]
+        hq_iid_idx = np.array(hq_anc_df.index)
+        H = data["calldata/GT"][:,hq_iid_idx,:]
+        n_hq = H.shape[1]
+        miss_frac = np.sum(H[:,:,0] == -1, axis=1) / n_hq
+        hq_snps_idx = miss_frac < MAX_MISS
+        
+        # indicies dict
+        idx_dict = {"sard": {"snp": sard_snps_idx}, 
+                    "ho": {"snp": ho_snps_idx},
+                    "nog": {"snp": no_g},
+                    "hq": {"snp": hq_snps_idx} 
+                    }
+
+        pkl.dump(idx_dict, open(output.snp_idx, "wb"), protocol=2)

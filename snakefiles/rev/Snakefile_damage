@@ -1,0 +1,69 @@
+#!python
+import glob, os
+from snakemake.utils import R
+import pandas as pd
+
+# Modified from Hussein's Snakefile found
+
+# filter the data
+meta_df = pd.read_table("output/meta/meta_rev_final.csv", sep=",")
+anc_sard_df = meta_df[meta_df["study"] == "Marcus et al. 2018"]
+anc_sard_df_1 = anc_sard_df[((anc_sard_df["include_alt"] == 1) |
+                            (anc_sard_df["include_alt"] == 2)) & 
+                            (anc_sard_df["n_cov_snp"] > 35000)]
+anc_sard_df_0 = anc_sard_df[(anc_sard_df["include_alt"] == 0) & 
+                            (anc_sard_df["n_cov_snp"] > 35000)]
+
+
+# output files
+damages_0 = ("output/damage_rev/anc0/" + anc_sard_df_0["full_iid"] + "_mrg_ddp_srt_damage.csv").tolist()
+damages_1 = ("output/damage_rev/anc1/" + anc_sard_df_1["full_iid"] + "_mrg_ddp_srt_damage.csv").tolist()
+damages = damages_0 + damages_1
+clusters = expand("output/damage_clst_rev/k{K}_rep{R}_{mod}", 
+                  K=range(2, 6), 
+                  R=range(6), 
+                  mod=["modern_lite1", "modern_lite2"])
+
+
+rule rev_damage_all:
+    """Dummy rule to run aRchaic
+    """
+    input:
+        damages,
+        clusters
+
+
+rule rev_call_damage:
+    """Generates input for aRchaic
+    """
+    input:
+        bam = "data/bam_rev/{ind}_mrg_ddp_srt.bam",
+        bai = "data/bam_rev/{ind}_mrg_ddp_srt.bam.bai",
+        ref = "data/ref_genome/hg19.fa"
+    output:
+        tsv = "output/damage_rev/{lib}/{ind}_mrg_ddp_srt_damage.csv"
+    run:
+        shell("./scripts/generate_summary_bams.py -b {input.bam} -o {output.tsv} -f {input.ref} --add-chr")
+
+
+rule rev_aRchaic_cluster:
+    """Run aRchaic to cluster and visualize damage patterns
+    """
+    input:
+        modern = "data/damage/modern_lite{i}",
+#        anc0 = "output/damage_rev/anc0/",
+        anc1 = "output/damage_rev/anc1/",
+        damage = damages 
+    params:
+        K = "{K}",
+        R = "{R}"
+    output:
+        clst = "output/damage_clst_rev/k{K}_rep{R}_modern_lite{i}"
+    run:
+        R("""
+          dir.create('{output.clst}')
+          modern_dir = '{input.modern}'
+          anc1_dir = '{input.anc1}'
+          out = aRchaic::archaic_prepare(dirs = c(modern_dir, anc1_dir))
+          model = aRchaic::archaic_fit(out, K = {params.K}, output_dir='{output.clst}')
+          """)

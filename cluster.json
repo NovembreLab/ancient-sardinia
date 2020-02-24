@@ -1,0 +1,543 @@
+{
+	"__default__":
+	{
+	    "time" : "2:00:00",
+        "mem" : "1G",
+        "n" : 1,
+        "tasks" : 1,
+        "name" : "{rule}-{wildcards}",
+        "logfile": "log/snake-{rule}-{wildcards}-%j.out",
+        "email": "jhmarcus@uchicago.edu",
+        "emailtype": "ALL"
+    },
+	"trim_bam":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"trim_bam_pmd":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"trim_bam_phon":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"read_sample":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"read_sample_pmd":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"read_sample_phon":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"merge_read_sampled_vcf":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"merge_read_sampled_vcf_pmd":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"merge_read_sampled_vcf_phon":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"merge_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_reich_pmd":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_reich_phon":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_mod_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_mod":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_mod_pmd":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"merge_mod_phon":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"vcf_to_h5":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+	"vcf_to_h5_pmd":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+	"vcf_to_h5_cors":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+	"vcf_to_h5_phon":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+	"gen_bed_cov":
+	{
+		"time": "8:00:00",
+    	"mem": "5G"
+	},
+	"gen_cov_stat":
+	{
+		"time": "1:00:00",
+    	"mem": "5G"
+    },
+	"extract_eigenstrat":
+	{
+		"time": "1:00:00",
+    	"mem": "56G",
+        "email": "hringbauer@uchicago.edu"
+	},
+    "calc_f3_fst":
+    {
+        "time": "1:00:00",
+        "mem": "8G",
+        "email": "hringbauer@uchicago.edu"
+    },
+    "reich_y":
+    {
+        "time": "14:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "sard_y":
+    {
+        "time": "14:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "reich_x":
+    {
+        "time": "72:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "sard_x":
+    {
+        "time": "14:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "merge_eigenstrats":
+    {
+        "time": "1:00:00",
+        "mem": "10G",
+        "email": "hringbauer@uchicago.edu"
+    },
+    "write_meta":
+    {
+        "time": "1:00:00",
+        "mem": "45G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "call_damage":
+    {
+        "time": "2:00:00",
+        "mem": "15G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "aRchaic_cluster":
+    {
+        "time": "5:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "pcshrink_ho":
+    {
+        "time": "30:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "proj_ho":
+    {
+        "time": "4:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "proj_sard":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "pcshrink_sard":
+    {
+        "time": "30:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "eigenstrat_ho":
+    {
+        "time": "20:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "shrinkmode_ho":
+    {
+        "time": "80:00:00",
+        "mem": "35G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "dystruct_input":
+    {
+        "time": "4:00:00",
+        "mem": "30G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "admixture_input":
+    {
+        "time": "4:00:00",
+        "mem": "30G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "run_dystruct":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "run_admixture":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "run_softimpute":
+    {
+        "time": "72:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "softimpute_input":
+    {
+        "time": "5:00:00",
+        "mem": "5G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+	"recent_trim_bam":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"recent_read_sample":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"recent_merge_read_sampled_vcf":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"recent_merge_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"recent_merge_mod":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"recent_vcf_to_h5":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+    "recent_write_meta":
+    {
+        "time": "2:00:00",
+        "mem": "45G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+	"pmd_recent_trim_bam":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"pmd_recent_read_sample":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"pmd_recent_merge_read_sampled_vcf":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"pmd_recent_merge_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"pmd_recent_merge_mod":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"pmd_recent_vcf_to_h5":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+    "recent_proj_ho":
+    {
+        "time": "4:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_proj_sard":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_dystruct_input":
+    {
+        "time": "4:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_admixture_input":
+    {
+        "time": "4:00:00",
+        "mem": "30G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_run_dystruct":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_run_admixture":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_pcshrink_ho_afr":
+    {
+        "time": "4:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "recent_proj_ho_afr":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+	"rev_trim_bam":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"rev_read_sample":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"rev_merge_read_sampled_vcf":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"rev_merge_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"rev_merge_mod":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"rev_vcf_to_h5":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+    "rev_write_meta":
+    {
+        "time": "2:00:00",
+        "mem": "55G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_create_snp_idx":
+    {
+        "time": "2:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+	"pmd_rev_trim_bam":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"pmd_rev_read_sample":
+	{
+		"time": "3:00:00",
+    	"mem": "4G"
+	},
+	"pmd_rev_merge_read_sampled_vcf":
+	{
+		"time": "3:00:00",
+    	"mem": "2G"
+	},
+	"pmd_rev_merge_reich":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"pmd_rev_merge_mod":
+	{
+		"time": "5:00:00",
+    	"mem": "20G"
+	},
+	"pmd_rev_vcf_to_h5":
+	{
+		"time": "10:00:00",
+    	"mem": "50G"
+	},
+    "rev_pcshrink_ho_afr":
+    {
+        "time": "30:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_pcshrink_ho":
+    {
+        "time": "30:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_pcshrink_sard":
+    {
+        "time": "30:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_proj_ho_afr":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_proj_ho":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_eigenstrat_ho_afr":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_eigenstrat2plink":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_plink2eigenstrat":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_plink_filfamanc":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_run_admixture":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_sard_y":
+    {
+        "time": "14:00:00",
+        "mem": "20G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_call_damage":
+    {
+        "time": "2:00:00",
+        "mem": "15G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_aRchaic_cluster":
+    {
+        "time": "10:00:00",
+        "mem": "30G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_aRchaic_cluster_full":
+    {
+        "time": "24:00:00",
+        "mem": "30G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_proj_sard":
+    {
+        "time": "8:00:00",
+        "mem": "40G",
+        "email": "jhmarcus@uchicago.edu"
+    },
+    "rev_run_dystruct":
+    {
+        "time": "72:00:00",
+        "ntasks-per-node": "8",
+        "mem": "6G",
+        "email": "jhmarcus@uchicago.edu"
+    }
+}

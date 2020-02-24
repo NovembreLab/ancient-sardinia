@@ -1,0 +1,143 @@
+#!python
+
+import os
+import glob
+import allel
+import pandas as pd
+import pysam
+import h5py
+
+bams = glob.glob("data/bam_rev_pmd/*.bam")
+inds = list(map(lambda x: os.path.basename(x).split("_")[0], bams))
+
+trimmed_bams = ["output/bam_rev_pmd/{}_mrg_ddp_srt_pmd_3trm.bam".format(ind) for ind in inds]
+vcfs = ["output/vcf_rev_pmd/{}_mrg_ddp_srt_pmd_3trm.vcf.gz".format(ind) for ind in inds] 
+merged_vcf = "output/vcf_rev_pmd/ancient_sardinia_rev_mrg_ddp_srt_pmd_3trm.vcf.gz"
+merged_anc_vcf = "output/vcf_rev_pmd/reich_sardinia_ancients_rev_mrg_dedup_pmd_3trm_anno.vcf.gz"
+merged_mod_vcf = "output/vcf_rev_pmd/mod_reich_sardinia_ancients_rev_mrg_dedup_pmd_3trm_anno.vcf.gz"
+merged_mod_h5 = "output/h5_rev_pmd/mod_reich_sardinia_ancients_rev_mrg_dedup_pmd_3trm_anno.h5"
+
+
+rule pmd_rev_read_sampling_all:
+    input: 
+        trimmed_bams,
+        vcfs,
+        merged_vcf,
+        merged_anc_vcf,
+        merged_mod_vcf,
+        merged_mod_h5
+
+
+rule pmd_rev_trim_bam:
+    """Trim first and last two position of the bam file
+    """
+    input: 
+        bam = "data/bam_rev_pmd/{ind}_mrg_ddp_srt_pmd.bam"
+    output:
+        bam = "output/bam_rev_pmd/{ind}_mrg_ddp_srt_pmd_3trm.bam"
+    run:
+        shell("bam trimBam {input.bam} {output.bam} 3")
+        shell("samtools index {output.bam}")
+
+
+rule pmd_rev_read_sample:
+    """Make ancient datasets by sampling allele from random reads and
+    fixing the genotype to the randomly sampled allele
+    """
+    input: 
+        bam = "output/bam_rev_pmd/{ind}_mrg_ddp_srt_pmd_3trm.bam"
+    params:
+        bam_list_path = "output/vcf_rev_pmd/{ind}_mrg_ddp_srt_pmd_3trm.txt",
+        snps = "data/bed/full230_autosomes.snp",
+        prefix = "output/vcf_rev_pmd/{ind}_mrg_ddp_srt_pmd_3trm.vcf"
+    output: 
+        vcf = "output/vcf_rev_pmd/{ind}_mrg_ddp_srt_pmd_3trm.vcf.gz"
+    run: 
+        with open(params.bam_list_path, "w") as bam_list_file:
+            iid = os.path.basename(input.bam).split("_")[0]
+            bam_list_file.write('{}\t{}\n'.format(iid, input.bam))
+        shell("python scripts/gdc/apulldown.py --mapqual 20 --basequal 30 --bamlist {params.bam_list_path} --snps {params.snps} -o vcf --gl | awk -f scripts/remove_chrom.awk > {params.prefix}") 
+        shell("bgzip {params.prefix}")
+        shell("tabix -p vcf {params.prefix}.gz")
+
+
+rule pmd_rev_merge_read_sampled_vcf:
+    """Merge all the read sampled vcfs into a single vcf
+    """
+    input: 
+        vcfs = vcfs,
+    output: 
+        vcf = merged_vcf
+    run:
+        vcf_files_str = " ".join(input.vcfs)
+        shell("bcftools merge {} | bgzip -c > {{output.vcf}}".format(vcf_files_str))  
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule pmd_rev_merge_reich:
+    """Merges read-sampled reich reference ancients with ancient sardinians
+    """
+    input:
+        sard = merged_vcf,
+        reich = "/project/jnovembre/data/external_public/ancient-data/output/vcf/reich_ancients_mrg_dedup_3trm_anno.vcf.gz"
+    output:
+        vcf = merged_anc_vcf
+    run:
+        shell("bcftools merge {input.sard} {input.reich} | bgzip -c > {output.vcf}")
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule pmd_recent_merge_mod:
+    """Merges ancients with moderns 
+    """
+    input:
+        anc = merged_anc_vcf,
+        ho = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.vcf.gz",
+        sard = "data/ref_genotypes/chiang_2017/sardinia_unrlt1577_hoasites_fil_cfrm.vcf.gz",
+        ho_anc = "data/ref_genotypes/human_origins_anc/vdata_auto_anc_cfrm.vcf.gz",
+        na_anc = "data/ref_genotypes/na_anc/v37.2.1240K_na_autosomes_cfrm.vcf.gz"
+    output:
+        vcf = merged_mod_vcf
+    run:
+        # remove multiallelic sites and keep only snps
+        shell("bcftools merge {input.anc} {input.na_anc} {input.ho_anc} {input.ho} {input.sard} | bcftools view -m 2 -M 2 -v snps | bgzip -c > {output.vcf}")
+        shell("tabix -p vcf {output.vcf}")
+
+
+rule pmd_rev_vcf_to_h5:
+    """Converts merged vcf to hdf5
+    """
+    input:
+        vcf = merged_mod_vcf
+    output:
+        h5 = merged_mod_h5
+    run:
+        allel.vcf_to_hdf5(input.vcf,
+                          output.h5,
+                          fields=["variants/CHROM",
+                                  "variants/POS",
+                                  "variants/ID", 
+                                  "variants/REF",
+                                  "variants/ALT",
+                                  "variants/AF",
+                                  "variants/EAS_AF",
+                                  "variants/EUR_AF",
+                                  "variants/AFR_AF",
+                                  "variants/AMR_AF",
+                                  "variants/SAS_AF",
+                                  "variants/AA",
+                                  "calldata/GT",
+                                  "calldata/AD",
+                                  "samples"],
+                          numbers={"calldata/AD": 2, 
+                                   "variants/ALT": 1,
+                                   "variants/AF": 1,
+                                   "variants/EAS_AF": 1,
+                                   "variants/EUR_AF": 1,
+                                   "variants/AFR_AF": 1,
+                                   "variants/AMR_AF": 1,
+                                   "variants/SAS_AF": 1,
+                                   "variants/AA": 1
+                                  }
+                          )
+

@@ -1,0 +1,173 @@
+#!python
+import glob
+import os
+import allel
+import h5py
+import numpy as np
+import pandas as pd
+import pysam
+
+
+# output files
+genos = expand("output/eigenstrat_rev/{dataset}/{dataset}_maf5_{pruned}.geno", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+snps = expand("output/eigenstrat_rev/{dataset}/{dataset}_maf5_{pruned}.snp", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+inds = expand("output/eigenstrat_rev/{dataset}/{dataset}_maf5_{pruned}.ind", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+pops = expand("output/eigenstrat_rev/{dataset}/{dataset}_maf5_{pruned}.pop", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+bims = expand("output/plink_rev/{dataset}/{dataset}_maf5_{pruned}.bim", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+fams = expand("output/plink_rev/{dataset}/{dataset}_maf5_{pruned}.fam", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+beds = expand("output/plink_rev/{dataset}/{dataset}_maf5_{pruned}.bed", pruned=["ldprune", "noldprune"], dataset=["ho_afr"])
+
+
+rule rev_eigenstrat_all:
+    input:
+        genos,
+        snps,
+        inds,
+        pops,
+        bims,
+        fams,
+        beds
+
+
+rule rev_eigenstrat_ho_afr:
+    """Writes eigenstrat files for the data
+    """
+    input:
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        meta = "output/meta/meta_rev_final.csv",
+        ho_meta = "data/meta/ho/HumanOriginsPublic2068.meta", 
+        weur_ind = "data/ref_genotypes/7-11-2018/lazaridis_2014/data_fil.ind",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in",
+        snp = "data/ref_genotypes/human_origins/EuropeFullyPublic/vdata.snp"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}"
+    output:
+        geno="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.geno",
+        snp="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.snp",
+        ind="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.ind",
+        pop="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.pop"
+    run:
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+        ho_meta = pd.read_table(input.ho_meta)
+
+        # extract west eurasian individuals
+        weur_ind = np.array(pd.read_table(input.weur_ind, header=None).iloc[:, 0])
+        afr_ind = np.array(ho_meta[ho_meta["Region"] == "Africa"]["ID"].tolist())
+        ho_afr_ind = np.concatenate([weur_ind, afr_ind])
+
+        # west eurasians + africa
+        ho_afr_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in ho_afr_ind, axis=1)]
+        exl_pops = ['BantuKenya','BantuSA', 'Biaka', 'Datog',
+                    'Esan','Gambian', 'Hadza', 'Ju_hoan_North',
+                    'Khomani', 'Kikuyu', 'Luhya', 'Luo', 'Mandenka',
+                    'Masai', 'Mbuti', 'Mende', 'Somali', 'Yoruba']
+        ho_afr_df = ho_afr_df[ho_afr_df["clst"].apply(lambda x: x not in exl_pops)]
+
+        # extract anc sard individuals
+        anc_sard_df = meta_df[(meta_df["study"] == "Marcus et al. 2018")]
+        anc_sard_df = anc_sard_df[(anc_sard_df["include_alt"] == 1.0) & (anc_sard_df["n_cov_snp"] > 35000)]
+
+        # extract sard individuals
+        sard_df = meta_df[meta_df.apply(lambda row: row["clst_alt"] in np.array(["Cag", "Car", "Cam", "Ori", "Ogl", "Nuo", "Sas", "Olb"]), axis=1)]
+        n_samp = 5
+        sard_ind = np.array(sard_df.groupby("clst").apply(lambda x: x.sample(5)).reset_index(drop=True)["full_iid"])
+        sard_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in sard_ind, axis=1)]
+
+        # extract anc reference 
+        anc_df = meta_df.iloc[85:1087]
+        anc_df = anc_df[(anc_df["include_alt"] == 1.0) & (anc_df["n_cov_snp"] > 35000)]
+
+        # extract famous individuals
+        anc_ref_df = meta_df[meta_df["clst"] == "FamAnc"]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+        
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["ho"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+       
+        # North African Genotypes
+        H_ho_afr = data["calldata/GT"][:, ho_afr_df.index.tolist(), :][snp_fil, :, :]
+        G_ho_afr = np.sum(H_ho_afr, axis=-1).astype(np.float32)
+        G_ho_afr[G_ho_afr==-2] = np.nan
+        H_sard = data["calldata/GT"][:, sard_df.index.tolist(), :][snp_fil, :, :]
+        H_anc_sard = data["calldata/GT"][:, anc_sard_df.index.tolist(), :][snp_fil, :, :]
+        H_anc = data["calldata/GT"][:, anc_df.index.tolist(), :][snp_fil, :, :]
+        H_anc_ref = data["calldata/GT"][:, anc_ref_df.index.tolist(), :][snp_fil, :, :]
+        H = np.concatenate([H_ho_afr, H_sard, H_anc_sard, H_anc, H_anc_ref], axis=1)
+        G = np.sum(H, axis=-1)
+
+        # additional snp filter on maf
+        maf = float(params.maf) / 100.0 
+        f = (1. + np.nansum(G_ho_afr, axis=1)) / (2 + (2. * G_ho_afr.shape[1]))
+        snp_idx = np.where((f > maf) & (f < (1.0-maf)))[0]
+
+        G[G==-2] = 9
+        G = G[snp_idx, :]
+
+        #### geno ####
+        np.savetxt(output.geno, G, fmt="%.0f", delimiter="")
+
+        #### snp ####
+        chrom = data["variants/CHROM"][:][snp_idx]
+        pos = data["variants/POS"][:][snp_idx]
+        snp_id = data["variants/ID"][:][snp_idx]
+        ref = data["variants/REF"][:][snp_idx]
+        alt = data["variants/ALT"][:][snp_idx]
+        p = chrom.shape[0]
+        snp_df = pd.DataFrame({"snp_id": snp_id, "chrom": chrom, "cm": [0 for _ in range(p)], "pos": pos, "ref": ref, "alt": alt})
+        snp_df[["snp_id", "chrom", "cm", "pos", "ref", "alt"]].to_csv(output.snp, header=None, index=False, sep="\t")
+
+        #### ind ####
+        iids = (meta_df.iloc[ho_afr_df.index.tolist()]["full_iid"].tolist() + 
+                meta_df.iloc[sard_df.index.tolist()]["full_iid"].tolist() + 
+                meta_df.iloc[anc_sard_df.index.tolist()]["full_iid"].tolist() + 
+                meta_df.iloc[anc_df.index.tolist()]["full_iid"].tolist() +
+                meta_df.iloc[anc_ref_df.index.tolist()]["full_iid"].tolist())
+        n = len(iids)
+        iid_df = pd.DataFrame({"iid": iids, "sex": ["F" for _ in range(n)], "clst": iids})
+        iid_df[["iid", "sex", "clst"]].to_csv(output.ind, header=None, index=False, sep="\t")
+
+        # proj
+        proj_iids = meta_df.iloc[ho_afr_df.index.tolist()]["full_iid"].tolist()  
+        proj_df = pd.DataFrame({"iid": proj_iids})
+        proj_df[["iid"]].to_csv(output.pop, header=None, index=False, sep="\t")
+
+
+rule rev_eigenstrat2plink:
+    """Converts eigenstrat to plink
+    """
+    input:
+        geno="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.geno",
+        snp="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.snp",
+        ind="output/eigenstrat_rev/ho_afr/ho_afr_maf{maf}_{pruned}.ind"
+    output:
+        par="output/plink_rev/ho_afr/ho_afr_maf{maf}_{pruned}.par",
+        bim="output/plink_rev/ho_afr/ho_afr_maf{maf}_{pruned}.bim",
+        bed="output/plink_rev/ho_afr/ho_afr_maf{maf}_{pruned}.bed",
+        fam="output/plink_rev/ho_afr/ho_afr_maf{maf}_{pruned}.fam"
+    run:
+        with open(output.par, "w") as par:
+            par.write("genotypename:\t{}\n".format(input.geno))
+            par.write("snpname:\t{}\n".format(input.snp))
+            par.write("indivname:\t{}\n".format(input.ind))
+            par.write("outputformat:\tPACKEDPED\n")
+            par.write("genotypeoutname:\t{}\n".format(output.bed))
+            par.write("snpoutname:\t{}\n".format(output.bim))
+            par.write("indivoutname:\t{}\n".format(output.fam))
+            par.write("familynames:\tNO")
+
+        shell("convertf -p {output.par}")
+

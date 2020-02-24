@@ -1,0 +1,513 @@
+#!python
+import glob
+import os
+import allel
+import h5py
+import numpy as np
+import pandas as pd
+import pysam
+import _pickle as pkl
+import pcshrink
+
+
+# output files
+#ho_afr_pkls = expand("output/pca_rev/ho_afr/ho_afr_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+#ho_pkls = expand("output/pca_rev/ho_weur/ho_weur_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+sard_pkls = expand("output/pca_rev/sard/sard_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+sard_proj_pkls = expand("output/pca_rev/sard/proj_sard_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+
+#ho_afr_proj_pkls = expand("output/pca_rev/ho_afr/proj_ho_afr_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+#ho_proj_pkls = expand("output/pca_rev/ho_weur/proj_ho_weur_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["noldprune"], scaler=["patterson"], K=[4, 10])
+#sard_proj_pkls = expand("output/pca_recent/sard/proj_sard_maf5_{pruned}_{scaler}_k{K}.pkl", pruned=["ldprune", "noldprune"], scaler=["patterson", "emp"], K=[4, 10])
+
+
+rule rev_pca_all:
+    input:
+#        ho_afr_pkls,
+#        ho_pkls,
+        sard_pkls,
+        sard_proj_pkls
+#        ho_afr_proj_pkls,
+#        ho_proj_pkls,
+#        sard_proj_pkls,
+
+
+
+rule rev_pcshrink_ho_afr:
+    """Runs pcshrink for north africa dataset
+    """
+    input:
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        meta = "output/meta/meta_rev_final.csv",
+        ho_meta = "data/meta/ho/HumanOriginsPublic2068.meta", 
+        weur_ind = "data/ref_genotypes/7-11-2018/lazaridis_2014/data_fil.ind",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in",
+        snp = "data/ref_genotypes/human_origins/EuropeFullyPublic/vdata.snp"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        ho_afr_pkl = "output/pca_rev/ho_afr/ho_afr_maf{maf}_{pruned}_{scaler}_k{K}.pkl"
+    run:
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+        ho_meta = pd.read_table(input.ho_meta)
+
+        # extract west eurasian individuals
+        weur_ind = np.array(pd.read_table(input.weur_ind, header=None).iloc[:, 0])
+        afr_ind = np.array(ho_meta[ho_meta["Region"] == "Africa"]["ID"].tolist())
+        ho_afr_ind = np.concatenate([weur_ind, afr_ind])
+
+        # west eurasians + africa
+        ho_afr_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in ho_afr_ind, axis=1)]
+        exl_pops = ['BantuKenya','BantuSA', 'Biaka', 'Datog',
+                    'Esan','Gambian', 'Hadza', 'Ju_hoan_North',
+                    'Khomani', 'Kikuyu', 'Luhya', 'Luo', 'Mandenka',
+                    'Masai', 'Mbuti', 'Mende', 'Somali', 'Yoruba']
+        ho_afr_df = ho_afr_df[ho_afr_df["clst"].apply(lambda x: x not in exl_pops)]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["ho"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # read genotypes
+        H_ho_afr = data["calldata/GT"][:, ho_afr_df.index.tolist(), :][snp_fil, :, :]
+        G_ho_afr = np.sum(H_ho_afr, axis=-1).astype(np.float32)
+        G_ho_afr[G_ho_afr==-2] = np.nan
+        
+        # normalize
+        norm = pcshrink.Normalizer(G_ho_afr, eps=float(params.maf) / 100.0, scale_type=params.scaler)
+
+        # run PCA
+        k = int(params.K)
+        pc = pcshrink.ShrinkageCorrector(norm.Y, k)
+        pc.jackknife(downdate=False, o=5)
+
+        pc_dict = {"pc": pc, "norm": norm}
+        pkl.dump(pc_dict, open(output.ho_afr_pkl, "wb"))
+
+
+rule rev_pcshrink_sard:
+    """Runs pcshrink for Sardinia data
+    """
+    input:
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        meta = "output/meta/meta_rev_final.csv",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in",
+        snp = "data/ref_genotypes/human_origins/EuropeFullyPublic/vdata.snp"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        sard_pkl ="output/pca_rev/sard/sard_maf{maf}_{pruned}_{scaler}_k{K}.pkl",
+        sard_meta = "output/pca_rev/sard/sard_maf{maf}_{pruned}_{scaler}_k{K}.csv"
+    run:
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+        
+        # subsample
+        cag_df = meta_df[meta_df["clst_alt"] == "Cag"].sample(100, replace=False)
+        car_df = meta_df[meta_df["clst_alt"] == "Car"]
+        cam_df = meta_df[meta_df["clst_alt"] == "Cam"]
+        ori_df = meta_df[meta_df["clst_alt"] == "Ori"]
+        ogl_df = meta_df[meta_df["clst_alt"] == "Ogl"].sample(100, replace=False)
+        nuo_df = meta_df[meta_df["clst_alt"] == "Nuo"]
+        sas_df = meta_df[meta_df["clst_alt"] == "Sas"]
+        olb_df = meta_df[meta_df["clst_alt"] == "Olb"]
+        sard_df = pd.concat([cag_df, car_df, cam_df, ori_df, ogl_df, nuo_df, sas_df, olb_df]) 
+        sard_df.to_csv(output.sard_meta, index=False)
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["sard"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # read genotypes
+        H_sard = data["calldata/GT"][:, sorted(sard_df.index.tolist()), :][snp_fil, :, :]
+        G_sard = np.sum(H_sard, axis=-1).astype(np.float32)
+        G_sard[G_sard==-2] = np.nan
+        
+        # normalize
+        norm = pcshrink.Normalizer(G_sard, eps=float(params.maf) / 100.0, scale_type=params.scaler)
+
+        # run PCA
+        k = int(params.K)
+        pc = pcshrink.ShrinkageCorrector(norm.Y, k)
+        pc.jackknife(downdate=False, o=5)
+
+        pc_dict = {"pc": pc, "norm": norm}
+        pkl.dump(pc_dict, open(output.sard_pkl, "wb"))
+
+
+rule rev_proj_sard:
+    """Performs projection on Sardinia data
+    """
+    input: 
+        pc_pkl = "output/pca_rev/sard/sard_maf{maf}_{pruned}_{scaler}_k{K}.pkl",
+        sard_meta = "output/pca_rev/sard/sard_maf{maf}_{pruned}_{scaler}_k{K}.csv",
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        vcf = "output/vcf_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.vcf.gz",
+        meta = "output/meta/meta_rev_final.csv",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        sard_proj_pkl = "output/pca_rev/sard/proj_sard_maf{maf}_{pruned}_{scaler}_k{K}.pkl"
+    run:
+        # read pc and norm objects
+        pc_dict = pkl.load(open(input.pc_pkl, "rb"))
+        pc = pc_dict["pc"]
+        norm = pc_dict["norm"]
+
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+       
+        # modern sardinians
+        sard = pd.read_csv(input.sard_meta)
+        sard_df = meta_df.reset_index().merge(sard, on="full_iid", how="inner").sort_values("index")
+
+        # ancient sardinians
+        anc_sard_df = meta_df[meta_df["study"] == "Marcus et al. 2018"]
+
+        # extract anc reference 
+        anc_df = meta_df.iloc[85:1087]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["sard"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # ancient sardinia genotypes
+        H_anc_sard = data["calldata/GT"][:, anc_sard_df.index.tolist(), :][snp_fil, :, :]
+        G_anc_sard = np.sum(H_anc_sard, axis=-1).astype(np.float32)
+        G_anc_sard[G_anc_sard==-2] = np.nan
+        G_anc_sard_norm = (G_anc_sard[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # ancient reference genotypes
+        H_anc = data["calldata/GT"][:, anc_df.index.tolist(), :][snp_fil, :, :]
+        G_anc = np.sum(H_anc, axis=-1).astype(np.float32)
+        G_anc[G_anc==-2] = np.nan
+        G_anc_norm = (G_anc[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # project the genotypes on to pcs
+        L_anc_sard = pc.lstsq_project(G_anc_sard_norm, o=100)
+        L_anc = pc.lstsq_project(G_anc_norm, o=100)
+        L = np.concatenate([pc.L, L_anc_sard, L_anc])
+
+        # iids 
+        iids = (meta_df.iloc[sard_df["index"].tolist(), :]["full_iid"].tolist() +
+                meta_df.iloc[anc_sard_df.index, :]["full_iid"].tolist() +
+                meta_df.iloc[anc_df.index, :]["full_iid"].tolist()) 
+       
+        # create a DataFrame of results
+        pc_df = pd.DataFrame(L)
+        pc_df.columns = ["PC{}".format(i+1) for i in range(L.shape[1])]
+        pc_df["full_iid"] = iids 
+        pc_df.to_pickle(output.sard_proj_pkl)
+
+
+rule rev_proj_ho_afr:
+    """Performs projection on North Africa data
+    """
+    input: 
+        pc_pkl = "output/pca_rev/ho_afr/ho_afr_maf{maf}_{pruned}_{scaler}_k{K}.pkl",
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        vcf = "output/vcf_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.vcf.gz",
+        meta = "output/meta/meta_rev_final.csv",
+        ho_meta = "data/meta/ho/HumanOriginsPublic2068.meta", 
+        weur_ind = "data/ref_genotypes/7-11-2018/lazaridis_2014/data_fil.ind",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        ho_afr_proj_pkl = "output/pca_rev/ho_afr/proj_ho_afr_maf{maf}_{pruned}_{scaler}_k{K}.pkl"
+    run:
+        # read pc and norm objects
+        pc_dict = pkl.load(open(input.pc_pkl, "rb"))
+        pc = pc_dict["pc"]
+        norm = pc_dict["norm"]
+
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+
+        # extract west eurasian + african individuals
+        ho_meta = pd.read_table(input.ho_meta)
+        weur_ind = np.array(pd.read_table(input.weur_ind, header=None).iloc[:, 0])
+        afr_ind = np.array(ho_meta[ho_meta["Region"] == "Africa"]["ID"].tolist())
+        ho_afr_ind = np.concatenate([weur_ind, afr_ind])
+        ho_afr_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in ho_afr_ind, axis=1)]
+        exl_pops = ['BantuKenya','BantuSA', 'Biaka', 'Datog',
+                    'Esan','Gambian', 'Hadza', 'Ju_hoan_North',
+                    'Khomani', 'Kikuyu', 'Luhya', 'Luo', 'Mandenka',
+                    'Masai', 'Mbuti', 'Mende', 'Somali', 'Yoruba']
+        ho_afr_df = ho_afr_df[ho_afr_df["clst"].apply(lambda x: x not in exl_pops)]
+        # extract anc sard individuals
+        anc_sard_df = meta_df[meta_df["study"] == "Marcus et al. 2018"]
+        # extract sard individuals
+        sard_df = meta_df[meta_df["study"] == "Chiang et al. 2016"]
+        # extract anc reference 
+        anc_df = meta_df.iloc[85:1087]
+        # extract famous individuals
+        anc_ref_df = meta_df[meta_df["clst"] == "FamAnc"]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["ho"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # sardinia genotypes
+        H_sard = data["calldata/GT"][:, sard_df.index.tolist(), :][snp_fil, :, :]
+        G_sard = np.sum(H_sard, axis=-1).astype(np.float32)
+        G_sard[G_sard==-2] = np.nan
+        G_sard_norm = (G_sard[norm.snp_idx, :] - norm.mu) / norm.s
+        
+        # ancient sardinia genotypes
+        H_anc_sard = data["calldata/GT"][:, anc_sard_df.index.tolist(), :][snp_fil, :, :]
+        G_anc_sard = np.sum(H_anc_sard, axis=-1).astype(np.float32)
+        G_anc_sard[G_anc_sard==-2] = np.nan
+        G_anc_sard_norm = (G_anc_sard[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # ancient reference genotypes
+        H_anc = data["calldata/GT"][:, anc_df.index.tolist(), :][snp_fil, :, :]
+        G_anc = np.sum(H_anc, axis=-1).astype(np.float32)
+        G_anc[G_anc==-2] = np.nan
+        G_anc_norm = (G_anc[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # famous ancient genotypes
+        H_anc_ref = data["calldata/GT"][:, anc_ref_df.index.tolist(), :][snp_fil, :, :]
+        G_anc_ref = np.sum(H_anc_ref, axis=-1).astype(np.float32)
+        G_anc_ref[G_anc_ref==-2] = np.nan
+        G_anc_ref_norm = (G_anc_ref[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # project the genotypes on to pcs
+        L_sard = pc.lstsq_project(G_sard_norm, o=100)
+        L_anc_sard = pc.lstsq_project(G_anc_sard_norm, o=100)
+        L_anc = pc.lstsq_project(G_anc_norm, o=100)
+        L_anc_ref = pc.lstsq_project(G_anc_ref_norm, o=100)
+        L = np.concatenate([pc.L, L_sard, L_anc_sard, L_anc, L_anc_ref])
+
+        # iids 
+        iids = (meta_df.iloc[ho_afr_df.index, :]["full_iid"].tolist() +
+                meta_df.iloc[sard_df.index, :]["full_iid"].tolist() + 
+                meta_df.iloc[anc_sard_df.index, :]["full_iid"].tolist() +
+                meta_df.iloc[anc_df.index, :]["full_iid"].tolist() + 
+                meta_df.iloc[anc_ref_df.index, :]["full_iid"].tolist())
+       
+        # create a DataFrame of results
+        pc_df = pd.DataFrame(L)
+        pc_df.columns = ["PC{}".format(i+1) for i in range(L.shape[1])]
+        pc_df["full_iid"] = iids 
+        pc_df.to_pickle(output.ho_afr_proj_pkl)
+
+
+rule rev_pcshrink_ho:
+    """Runs pcshrink on Western Eurasian data
+    """
+    input:
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        meta = "output/meta/meta_rev_final.csv",
+        weur_ind = "data/ref_genotypes/7-11-2018/lazaridis_2014/data_fil.ind",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in",
+        snp = "data/ref_genotypes/human_origins/EuropeFullyPublic/vdata.snp"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        ho_pkl = "output/pca_rev/ho_weur/ho_weur_maf{maf}_{pruned}_{scaler}_k{K}.pkl"
+    run:
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+
+        # extract west eurasian individuals
+        weur_ind = np.array(pd.read_table(input.weur_ind, header=None).iloc[:, 0])
+
+        # west eurasians 
+        ho_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in weur_ind, axis=1)]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["ho"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # read genotypes
+        H_ho = data["calldata/GT"][:, ho_df.index.tolist(), :][snp_fil, :, :]
+        G_ho = np.sum(H_ho, axis=-1).astype(np.float32)
+        G_ho[G_ho==-2] = np.nan
+        
+        # normalize
+        norm = pcshrink.Normalizer(G_ho, eps=float(params.maf) / 100.0, scale_type=params.scaler)
+
+        # run PCA
+        k = int(params.K)
+        pc = pcshrink.ShrinkageCorrector(norm.Y, k)
+        pc.jackknife(downdate=False, o=5)
+
+        pc_dict = {"pc": pc, "norm": norm}
+        pkl.dump(pc_dict, open(output.ho_pkl, "wb"))
+
+
+rule rev_proj_ho:
+    """Performs projection on Western Eurasian data
+    """
+    input: 
+        pc_pkl = "output/pca_rev/ho_weur/ho_weur_maf{maf}_{pruned}_{scaler}_k{K}.pkl",
+        h5 = "output/h5_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.h5",
+        vcf = "output/vcf_rev/mod_reich_sardinia_ancients_rev_mrg_dedup_3trm_anno.vcf.gz",
+        meta = "output/meta/meta_rev_final.csv",
+        weur_ind = "data/ref_genotypes/7-11-2018/lazaridis_2014/data_fil.ind",
+        idx_pkl = "output/indices_rev/idx_dict.pkl",
+        ld = "data/ref_genotypes/human_origins/vdata_auto_mod_cfrm.prune.in"
+    params:
+        maf = "{maf}",
+        pruned = "{pruned}",
+        scaler = "{scaler}",
+        K = "{K}"
+    output:
+        ho_proj_pkl = "output/pca_rev/ho_weur/proj_ho_weur_maf{maf}_{pruned}_{scaler}_k{K}.pkl"
+    run:
+        # read pc and norm objects
+        pc_dict = pkl.load(open(input.pc_pkl, "rb"))
+        pc = pc_dict["pc"]
+        norm = pc_dict["norm"]
+
+        # read meta
+        meta_df = pd.read_csv(input.meta)
+
+        # extract west eurasian + african individuals
+        weur_ind = np.array(pd.read_table(input.weur_ind, header=None).iloc[:, 0])
+        ho_df = meta_df[meta_df.apply(lambda row: row["full_iid"] in weur_ind, axis=1)]
+        # extract anc sard individuals
+        anc_sard_df = meta_df[meta_df["study"] == "Marcus et al. 2018"]
+        # extract sard individuals
+        sard_df = meta_df[meta_df["study"] == "Chiang et al. 2016"]
+        # extract anc reference 
+        anc_df = meta_df.iloc[85:1087]
+        # extract famous individuals
+        anc_ref_df = meta_df[meta_df["clst"] == "FamAnc"]
+
+        # read h5 
+        data = h5py.File(input.h5, mode='r')
+
+        # snp fil
+        idx_dict = pkl.load(open(input.idx_pkl, "rb"))
+        snp_fil = np.where(idx_dict["ho"]["snp"] * idx_dict["hq"]["snp"])[0]
+
+        # check snp filter to ld pruned 
+        if params.pruned == "ldprune":
+            rsid_df = pd.DataFrame({"id": data["variants/ID"][:][snp_fil]}).reset_index()
+            prune_rsid_df = pd.read_table(input.ld, header=None)
+            prune_rsid_df.columns = ["id"]
+            mrg_rsid_df = rsid_df.merge(prune_rsid_df, on=["id"])
+            snp_fil = np.array(mrg_rsid_df["index"].tolist())
+        
+        # sardinia genotypes
+        H_sard = data["calldata/GT"][:, sard_df.index.tolist(), :][snp_fil, :, :]
+        G_sard = np.sum(H_sard, axis=-1).astype(np.float32)
+        G_sard[G_sard==-2] = np.nan
+        G_sard_norm = (G_sard[norm.snp_idx, :] - norm.mu) / norm.s
+        
+        # ancient sardinia genotypes
+        H_anc_sard = data["calldata/GT"][:, anc_sard_df.index.tolist(), :][snp_fil, :, :]
+        G_anc_sard = np.sum(H_anc_sard, axis=-1).astype(np.float32)
+        G_anc_sard[G_anc_sard==-2] = np.nan
+        G_anc_sard_norm = (G_anc_sard[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # ancient reference genotypes
+        H_anc = data["calldata/GT"][:, anc_df.index.tolist(), :][snp_fil, :, :]
+        G_anc = np.sum(H_anc, axis=-1).astype(np.float32)
+        G_anc[G_anc==-2] = np.nan
+        G_anc_norm = (G_anc[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # famous ancient genotypes
+        H_anc_ref = data["calldata/GT"][:, anc_ref_df.index.tolist(), :][snp_fil, :, :]
+        G_anc_ref = np.sum(H_anc_ref, axis=-1).astype(np.float32)
+        G_anc_ref[G_anc_ref==-2] = np.nan
+        G_anc_ref_norm = (G_anc_ref[norm.snp_idx, :] - norm.mu) / norm.s
+
+        # project the genotypes on to pcs
+        L_sard = pc.lstsq_project(G_sard_norm, o=100)
+        L_anc_sard = pc.lstsq_project(G_anc_sard_norm, o=100)
+        L_anc = pc.lstsq_project(G_anc_norm, o=100)
+        L_anc_ref = pc.lstsq_project(G_anc_ref_norm, o=100)
+        L = np.concatenate([pc.L, L_sard, L_anc_sard, L_anc, L_anc_ref])
+
+        # iids 
+        iids = (meta_df.iloc[ho_df.index, :]["full_iid"].tolist() +
+                meta_df.iloc[sard_df.index, :]["full_iid"].tolist() + 
+                meta_df.iloc[anc_sard_df.index, :]["full_iid"].tolist() +
+                meta_df.iloc[anc_df.index, :]["full_iid"].tolist() + 
+                meta_df.iloc[anc_ref_df.index, :]["full_iid"].tolist())
+       
+        # create a DataFrame of results
+        pc_df = pd.DataFrame(L)
+        pc_df.columns = ["PC{}".format(i+1) for i in range(L.shape[1])]
+        pc_df["full_iid"] = iids 
+        pc_df.to_pickle(output.ho_proj_pkl)
