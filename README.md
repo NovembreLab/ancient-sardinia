@@ -12,5 +12,5 @@ Either use conda, or install requeire packages with **pip**:
 pip3 install --user scipy numpy pandas snakemake cython pysam click xlrd xlwt openpyxl XlsxWriter jupyter pyfaidx scikit-learn matplotlib seaborn scikit-allel shapely
 ```
 
-submit-snakemake.sh             # Loads conda environment with packages (if available)
+submit-snakemake.sh             # Loads conda environment with packages (if available)  
 submit-snakemake_noconda.sh     # Loads python packages internally
